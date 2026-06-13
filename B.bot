@@ -1,0 +1,117 @@
+import logging
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+import requests
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+FINNHUB_KEY = os.getenv("FINNHUB_KEY")
+
+TOP_CRYPTOS = ["bitcoin", "ethereum", "binancecoin", "ripple", "cardano"]
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🔍 کریپتو", callback_data="crypto")],
+        [InlineKeyboardButton("💰 طلا", callback_data="gold")],
+        [InlineKeyboardButton("ℹ️ درباره", callback_data="about")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "🎯 خوش آمدید به **Success**\n\n"
+        "تحلیل بازار و سرمایه‌گذاری\n\n"
+        "گزینه‌ای انتخاب کنید:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+async def get_crypto():
+    try:
+        url = "https://api.coingecko.com/api/v3/coins/markets"
+        params = {
+            "vs_currency": "usd",
+            "ids": ",".join(TOP_CRYPTOS),
+            "order": "market_cap_desc",
+            "price_change_percentage": "24h"
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        text = "📊 *تحلیل کریپتو*\n\n"
+        
+        for coin in data:
+            name = coin['name']
+            symbol = coin['symbol'].upper()
+            price = coin['current_price']
+            change = coin['price_change_percentage_24h_in_currency'] or 0
+            
+            emoji = "🟢" if change > 0 else "🔴"
+            text += f"{emoji} **{name}** ({symbol})\n💵 ${price:,.2f}\n📈 {change:+.2f}%\n\n"
+        
+        return text
+    except Exception as e:
+        return f"❌ خطا: {str(e)}"
+
+async def get_gold():
+    try:
+        url = "https://finnhub.io/api/v1/quote"
+        params = {"symbol": "XAUUSD", "token": FINNHUB_KEY}
+        
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        price = data.get('c', 0)
+        change = data.get('dp', 0)
+        
+        emoji = "🟢" if change > 0 else "🔴"
+        
+        text = f"💰 *تحلیل طلا*\n\n"
+        text += f"{emoji} **طلا (XAU/USD)**\n"
+        text += f"💵 ${price:,.2f}\n"
+        text += f"📊 {change:+.2f}%"
+        
+        return text
+    except Exception as e:
+        return f"❌ خطا: {str(e)}"
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "crypto":
+        text = await get_crypto()
+        await query.edit_message_text(text=text, parse_mode="Markdown")
+    
+    elif query.data == "gold":
+        text = await get_gold()
+        await query.edit_message_text(text=text, parse_mode="Markdown")
+    
+    elif query.data == "about":
+        text = (
+            "ℹ️ *درباره Success*\n\n"
+            "🤖 ربات تحلیل بازار\n\n"
+            "✅ تحلیل کریپتو\n"
+            "✅ تحلیل طلا\n"
+            "✅ اطلاعات لحظه‌ای\n\n"
+            "⚠️ فقط برای اطلاع‌رسانی"
+        )
+        await query.edit_message_text(text=text, parse_mode="Markdown")
+
+async def main():
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    logger.info("✅ ربات شروع شد!")
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
